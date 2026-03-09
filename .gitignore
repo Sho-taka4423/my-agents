@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# 環境変数
+.env
+
+# AgentCore デプロイ設定（アカウント固有情報を含むため）
+lt-memo/.bedrock_agentcore.yaml
+
+# AgentCore ビルド成果物
+lt-memo/.bedrock_agentcore/
+
+# データファイル（個人のメモ・レポート・ナレッジ）
+lt-memo/events.json
+lt-memo/knowledge.json
+lt-memo/memos/
+lt-memo/reports/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/settings.json
+.idea/
