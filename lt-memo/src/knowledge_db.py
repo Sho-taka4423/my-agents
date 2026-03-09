@@ -14,6 +14,7 @@ KNOWLEDGE_KEY = "knowledge.json"
 EVENTS_KEY = "events.json"
 REPORTS_PREFIX = "reports/"
 MEMOS_PREFIX = "memos/"
+PREVIEW_CACHE_PREFIX = "memos/.cache/"
 
 
 def _s3():
@@ -166,3 +167,30 @@ class KnowledgeDB:
     def get_speakers(self) -> dict:
         knowledge = self._load_json(KNOWLEDGE_KEY)
         return knowledge.get("speakers", {})
+
+    def save_preview_cache(self, filename: str, data: dict):
+        """プレビュー時に生成したレポート・ナレッジをS3に一時保存する。"""
+        key = f"{PREVIEW_CACHE_PREFIX}{filename}.json"
+        _s3().put_object(
+            Bucket=BUCKET_NAME,
+            Key=key,
+            Body=json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+
+    def load_preview_cache(self, filename: str) -> dict | None:
+        """キャッシュが存在すれば返す。なければ None。"""
+        key = f"{PREVIEW_CACHE_PREFIX}{filename}.json"
+        try:
+            response = _s3().get_object(Bucket=BUCKET_NAME, Key=key)
+            return json.loads(response["Body"].read().decode("utf-8"))
+        except ClientError:
+            return None
+
+    def delete_preview_cache(self, filename: str):
+        """使用済みキャッシュを削除する。"""
+        key = f"{PREVIEW_CACHE_PREFIX}{filename}.json"
+        try:
+            _s3().delete_object(Bucket=BUCKET_NAME, Key=key)
+        except ClientError:
+            pass

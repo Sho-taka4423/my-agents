@@ -226,16 +226,30 @@ def preview_memo_file(file_path: str) -> str:
     report_content = _generate_report(event_name, event_date, sessions, "")
 
     knowledge_lines = []
+    bulk_entries = []
     for session in sessions:
         speaker = session.get("speaker", "不明")
         title = session.get("title", "不明")
         entry = _generate_knowledge_entry(session)
+        bulk_entries.append({
+            "speaker": speaker,
+            "title": title,
+            "entry": entry,
+        })
         knowledge_lines.append(f"### {speaker}：{title}")
         knowledge_lines.append(f"- 要約: {entry.get('summary', '')}")
         knowledge_lines.append(f"- キーワード: {', '.join(entry.get('keywords', []))}")
         knowledge_lines.append(f"- 学び: {', '.join(entry.get('learnings', []))}")
         knowledge_lines.append(f"- 技術スタック: {', '.join(entry.get('tech_stack', []))}")
         knowledge_lines.append("")
+
+    db.save_preview_cache(file_path, {
+        "event_name": event_name,
+        "event_date": event_date,
+        "sessions": sessions,
+        "report": report_content,
+        "entries": bulk_entries,
+    })
 
     return (
         f"## プレビュー: {event_name}（{event_date}）\n\n"
@@ -252,7 +266,56 @@ def process_memo_file(file_path: str) -> str:
     S3の memos/ に置いたメモファイル（Markdown）を読み込んでレポートとナレッジエントリを生成・保存する。
     file_pathにはファイル名（例: 20260601_勉強会.md）を指定する。
     事前に aws s3 cp でファイルをS3にアップロードしておく必要がある。
+    preview_memo_file を先に呼んでいる場合はキャッシュを再利用し、Bedrock呼び出しをスキップする。
     """
+    cache = db.load_preview_cache(file_path)
+    if cache:
+        event_name = cache["event_name"]
+        event_date = cache["event_date"]
+        sessions = cache["sessions"]
+        report_content = cache["report"]
+        entries = cache["entries"]
+
+        event_id = f"{event_date}_{event_name}"
+        existing_events = db.get_events()
+        if any(e["event_id"] == event_id for e in existing_events):
+            db.delete_preview_cache(file_path)
+            return f"イベント「{event_name}（{event_date}）」は既に登録済みです。（ID: {event_id}）"
+
+        report_path = db.save_report(event_id, report_content)
+        db.add_event(
+            event_id=event_id,
+            event_name=event_name,
+            event_date=event_date,
+            report_path=report_path,
+            sessions=[s.get("title", "不明") for s in sessions],
+        )
+
+        bulk_entries = []
+        processed = []
+        for e in entries:
+            bulk_entries.append({
+                "speaker": e["speaker"],
+                "event_id": event_id,
+                "event_name": event_name,
+                "event_date": event_date,
+                "title": e["title"],
+                "summary": e["entry"].get("summary", ""),
+                "keywords": e["entry"].get("keywords", []),
+                "learnings": e["entry"].get("learnings", []),
+                "tech_stack": e["entry"].get("tech_stack", []),
+            })
+            processed.append(f"  - {e['speaker']}: {e['title']}")
+        db.add_bulk_speaker_knowledge(bulk_entries)
+        db.delete_preview_cache(file_path)
+
+        return (
+            f"メモを保存しました（キャッシュ利用）。\n"
+            f"イベント: {event_name}（{event_date}）\n"
+            f"レポート: {report_path}\n"
+            f"処理したセッション:\n" + "\n".join(processed)
+        )
+
     try:
         memo_content = db.read_memo_file(file_path)
         return add_memo(memo_content)
